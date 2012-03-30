@@ -1,6 +1,9 @@
+import stdlib.themes.bootstrap
+
 /** myFunction */
 function myFunction(){
     <body onready={function(_){loadData()}}>
+    <div class="navbar"><div class="navbar-inner"><div class="container"><span class="brand">My Application</></></></>
     <span>Name</span> <input id="name"/>
     <span>Age</span> <input id="age"/>
     <input type="button" value="Save" onclick={function(_){save()}}/>
@@ -8,11 +11,11 @@ function myFunction(){
     </>
 }
 
-type person = {int age, string name};
+type person = {int id, int age, string name};
 
 database people {
-  person /all[{name}]
-  /all[_] = {name:"Lucas", age:26}
+  person /all[{id}]
+  int /last_id = 1
 }
 
 function loadData(){
@@ -22,17 +25,17 @@ function loadData(){
 }
 
 function removePerson(person p) {
-  Db.remove(@/people/all[{name:p.name}])
+  Db.remove(@/people/all[{id:p.id}])
   removeItem(p)
 }
 
 function renderItem(person p) {
-  #items =+ <li id={p.name}>{p.name} <span onclick={function(_){removePerson(p)}}>x</></li>
+  #items =+ <li id={p.id}>{p.id}:{p.name} - {p.age} <span onclick={function(_){removePerson(p)}}>x</></li>
 }
 
 function removeItem(person p)
 {
-  Dom.remove(#{p.name})
+  Dom.remove(#{intToString(p.id)})
 }
 
 function save(){
@@ -40,11 +43,12 @@ function save(){
   raw_age = Dom.get_value(#age)
   option(int) opt_age = Parser.try_parse(Rule.integer, raw_age)
 
-  age = Option.default(10, opt_age)
-  
+  age = Option.default(10, opt_age)  
+  id = /people/last_id
+  /people/last_id = id + 1
 
-  person p = {age:age, name:name}
-  /people/all[{name: name}] <- p
+  person p = {age:age, name:name, id: id}
+  /people/all[{id: id}] <- p
 
   renderItem(p)
 }
