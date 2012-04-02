@@ -1,32 +1,56 @@
 import stdlib.themes.bootstrap
+import stdlib.web.client
+import stdlib.widgets.{loginbox,tabs}
 
 type state = {new} or {edit}
+type userState = {string logged} or {unlogged}
 
-function init(){
-    <body onready={function(_){loadData();hideForm()}}>
-    <div class="navbar"><div class="navbar-inner"><div class="container"><span class="brand">My Application</></></></>
+function page(title, content) {
+  body = <body>
+    <div class="navbar">
+      <div class="navbar-inner">
+        <div class="container">
+          <a href="/" class="brand">My Application</>
+          <ul class="nav pull-right">
+            <li>{User.loginForm()}</>
+          </>
+        </>
+      </>
+    </>
     <div class="container">
+    {content}
+    </>
+  </>
+
+  Resource.page(title, body)
+}
+
+function list(){    
+    content = <>
     {toolbar()}
-    {form()}
     {table()}
     </>
-    </>
+    page("List", content)
+}
+
+function add(){
+  page("Add", form({new}))
 }
 
 function toolbar(){
   <div class="subnav">
     <ul class="nav nav-pills">
-        <li><a href="#" class="btn" onclick={function(_){new()}}>New</></>
-        <li><a href="#" type="button" class="btn" onclick={function(_){save()}}>Save</></>
-    </>
+        <li><a href="/add" class="btn">Add new</></>        
+    </>    
   </>
 }
 
-function form() {
-  <form id=form class="well">
+function form(state) {  
+  <form id=form class="well" onready={function(_){Dom.give_focus(#name)}}>
     <input type="hidden" id=id />
     {renderInput("name", "Name")}
     {renderInput("age", "Age")}
+    <a href="#" class="btn" onclick={function(_){save(state)}}>Save</> 
   </>
 }
 
@@ -40,7 +64,7 @@ function renderInput(id, label){
 }
 
 function table() {
-  <table class="table table-stripped table-bordered">
+  <table class="table table-stripped table-bordered" onready={function(_){loadData()}} >
     <thread>
       <tr>
         <th>Id</>
@@ -65,56 +89,36 @@ function loadData(){
   l = /people/all
   it = DbSet.iterator(l)
   Iter.iter(function(person p) {
-    renderItem(p, {new})
+    renderItem(p)
     void
   }, it)
 }
 
-function showForm() {
-  Dom.show(#form)
-}
-
-function hideForm() {
-  Dom.hide(#form)
-}
-
-function new() {
-  clearForm()
-  showForm()
-  Dom.set_value(#state, "I")
-  Dom.give_focus(#name)
+function edit(id) {
+  p = /people/all[{~id}]
+  if (p.id != 0) {
+    content = <div onready={function(_){ editPerson(p) }}>
+    {form({edit})}
+    </>
+    page("Edit {p.name}", content)
+  } else {
+    list()
+  }
 }
 
 function removePerson(person p) {
   Db.remove(@/people/all[{id:p.id}])
-  removeItem(p)
+  Client.goto("/")
 }
 
 function editPerson(person p) {
-  showForm()
   Dom.set_value(#name, p.name)
   Dom.set_value(#age, intToString(p.age))
   Dom.set_value(#id, intToString(p.id))
 }
 
-function renderItem(person p, state s) {
-  match(s){
-    case {edit}: updateRenderedItem(p)
-    case {new} : addRenderedItem(p)
-  }
-
-  void
-}
-
-function updateRenderedItem(person p) {
-  editButton = <button onclick={function(_){editPerson(p)}} class="btn btn-info" href="#">Edit</>
-  removeButton = <button onclick={function(_){removePerson(p)}} class="btn btn-danger" href="#">Remove</>
-  tr =  <td>{p.id}</><td>{p.name}</><td>{p.age}</><td>{editButton} {removeButton}</>
-  #{intToString(p.id)} = tr
-}
-
-function addRenderedItem(person p) {
-  editButton = <button onclick={function(_){editPerson(p)}} class="btn btn-info" href="#">Edit</>
+function renderItem(person p) {
+  editButton = <a class="btn btn-info" href="/edit/{p.id}">Edit</>
   removeButton = <button onclick={function(_){removePerson(p)}} class="btn btn-danger" href="#">Remove</>
   row = <tr id={p.id}>
   <td>{p.id}</><td>{p.name}</><td>{p.age}</><td>{editButton} {removeButton}</>
@@ -123,59 +127,81 @@ function addRenderedItem(person p) {
   #items =+ row
 }
 
-function removeItem(person p)
-{
-  Dom.remove(#{intToString(p.id)})
-}
+function save(state){
+  match(state){
+  case {new}: /people/last_id = /people/last_id + 1
+  case {edit}: void    
+  }
+  
 
-type t_id_and_state = {int, state}
-
-function save(){
   name = Dom.get_value(#name)
   raw_age = Dom.get_value(#age)
   raw_id = Dom.get_value(#id)
-  option(int) opt_age = Parser.try_parse(Rule.integer, raw_age)
+  opt_age = Parser.try_parse(Rule.integer, raw_age)
   age = Option.default(10, opt_age)
 
-  id_and_state = match(Parser.try_parse(Rule.integer, raw_id)){
-    case {some:i}: {id : i, state : {edit}}
-    case _ : {
-      i = /people/last_id
-      /people/last_id = i + 1
-      {id : i, state : {new}}
+  opt_id = Parser.try_parse(Rule.integer, raw_id)
+  id = Option.default(/people/last_id, opt_id)
+
+  person p = {age:age, name:name, id: id}
+  Log.info("Person being saved", "{p}")
+  /people/all[{~id}] <- p
+
+  Client.goto("/");
+}
+
+module User{
+    private state = UserContext.make((userState) { unlogged })
+
+    function login(name, pass) {
+      if (name == "lucas" && pass == "123") {
+        UserContext.change(function(_){{logged : "Lucas Souza"}}, state)
+        Client.goto("/")
+      }
+    }
+
+    function logout() {
+      UserContext.change(function(_){{unlogged}}, state)
+      Client.goto("/")
+    }
+
+    function getStatus() {
+        UserContext.execute((function(a){a}), state)
+    }
+
+    function isLogged() {
+      match(getStatus()){
+        case {logged : _}: true        
+        case {unlogged} : false        
+      }
+      
+    }
+
+    /** loginForm */
+    function loginForm(){
+      if (isLogged() == true) {
+        name = match(getStatus()){
+        case {~logged}:logged
+        case _ : "User"          
+        }
+        <ul class=nav>
+        <li><a href="#" class="active">Welcome {name}</></>
+        <li><a onclick={function(_){logout()}}>Logout</></>
+        </>
+      } else {
+        WLoginbox.html_default(Dom.fresh_id(), login, {none});
+      }
     }
     
-  }  
 
-  id = id_and_state.id
-  person p = {age:age, name:name, id: id}
-  /people/all[{id: id}] <- p
-
-  renderItem(p, id_and_state.state)
-  clearForm()
-  hideForm()
 }
 
-function clearForm()
-{
-  Dom.clear_value(#name)
-  Dom.clear_value(#age)
-  Dom.clear_value(#id)
+
+
+urls  = parser {
+case "/add" : add()
+case "/edit/" id = Rule.integer  : edit(id)
+case .* : list()
 }
 
-Server.start(
-	Server.http, // default configuration for a http server, default port is 8080
-	// Below is the Server.handler that will handle your requests,
-	// Select Server.start and do [ctrl+d] to obtain the doc
-	[
-		// embbed resources in resources directory
-		// {resources:@static_resource_directory("resources") },
-		// other js and css resources
-	 	// [],
-	 	// the standard dispatcher for urls
-	 	// {dispatcher:},
-
-	 	// a simple page response for all page request, mostly for tutorials and beginners:)
-	 	{title:"My Application", page:init}
-	]
-)
+Server.start(Server.http, [{custom : urls}])
